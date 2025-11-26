@@ -6,6 +6,28 @@
 
 ---
 
+# 🚀 快速安裝與執行
+
+1. **建議使用 Python 3.11**（PyTorch 目前尚未穩定支援 3.13）。
+2. 建立虛擬環境並安裝依賴：
+   ```bash
+   python3.11 -m venv .venv
+   .venv\Scripts\activate        # Windows
+   pip install --upgrade pip
+   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+   ```
+   若安裝 torch 失敗，可再嘗試：
+   ```bash
+   pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+   pip install transformers==4.44.2 sentencepiece
+   ```
+3. 執行：
+   ```bash
+   streamlit run app.py
+   ```
+
+---
+
 # 📂 功能總覽
 
 | 編號 | 功能名稱 | 說明 |
