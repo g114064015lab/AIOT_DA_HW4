@@ -47,6 +47,13 @@ STOPWORDS = {
 WORD_RE = re.compile(r"[A-Za-z']+")
 
 
+def rating_value(row: Dict[str, str]) -> float:
+    try:
+        return float(row.get("rating", 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @st.cache_resource(show_spinner=False)
 def load_local_model():
     if not HEURISTICS_FILE.exists():
@@ -375,21 +382,14 @@ def main():
     if quick_source:
         st.caption("快速套用測試影評：")
 
-        def rating_value(row):
-            try:
-                return float(row.get("rating", 0))
-            except (TypeError, ValueError):
-                return 0.0
-
-        def pick_sample(sentiment, prefer_highest):
+        def pick_sample(sentiment: str, prefer_highest: bool):
             candidates = [
                 row for row in quick_source if row["sentiment"] == sentiment
             ]
             if not candidates:
                 return None
-            return max(candidates, key=rating_value) if prefer_highest else min(
-                candidates, key=rating_value
-            )
+            candidates.sort(key=rating_value, reverse=prefer_highest)
+            return candidates[0]
 
         positive_sample = pick_sample("Positive", prefer_highest=True)
         negative_sample = pick_sample("Negative", prefer_highest=False)
@@ -401,7 +401,9 @@ def main():
         if neutral_candidates:
             neutral_candidates.sort(key=rating_value)
             if positive_sample and negative_sample:
-                target = (rating_value(positive_sample) + rating_value(negative_sample)) / 2
+                target = (
+                    rating_value(positive_sample) + rating_value(negative_sample)
+                ) / 2
             elif positive_sample:
                 target = rating_value(positive_sample) * 0.8
             elif negative_sample:
@@ -418,17 +420,27 @@ def main():
                 and neutral_sample
                 and rating_value(neutral_sample) > rating_value(positive_sample)
             ):
-                neutral_sample = neutral_candidates[
-                    max(0, len(neutral_candidates) // 2 - 1)
-                ]
+                neutral_sample = next(
+                    (
+                        row
+                        for row in reversed(neutral_candidates)
+                        if rating_value(row) <= rating_value(positive_sample)
+                    ),
+                    neutral_sample,
+                )
             if (
                 negative_sample
                 and neutral_sample
                 and rating_value(neutral_sample) < rating_value(negative_sample)
             ):
-                neutral_sample = neutral_candidates[
-                    min(len(neutral_candidates) - 1, len(neutral_candidates) // 2 + 1)
-                ]
+                neutral_sample = next(
+                    (
+                        row
+                        for row in neutral_candidates
+                        if rating_value(row) >= rating_value(negative_sample)
+                    ),
+                    neutral_sample,
+                )
 
         quick_samples = [
             sample
@@ -437,11 +449,12 @@ def main():
         ]
         if not quick_samples:
             quick_samples = quick_source[: min(3, len(quick_source))]
-        if not quick_samples:
-            quick_samples = quick_source[: min(3, len(quick_source))]
         cols = st.columns(len(quick_samples))
         for col, sample in zip(cols, quick_samples):
-            label = f"{sample.get('title','Untitled')} ({sample['sentiment']})"
+            label = (
+                f"{sample['sentiment']} · {sample.get('title','Untitled')} "
+                f"({rating_value(sample):.1f}/10)"
+            )
             col.button(
                 label,
                 use_container_width=True,
