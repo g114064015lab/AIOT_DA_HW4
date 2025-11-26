@@ -35,9 +35,18 @@ def load_summarizer():
     return pipeline("summarization", model="facebook/bart-large-cnn")
 
 
-zero_shot_clf = load_zero_shot_classifier()
-sentiment_clf = load_sentiment_model()
-summarizer = load_summarizer()
+def get_model_safely(loader_fn, model_name: str):
+    """
+    以懶加載方式取得模型，若缺少依賴或下載失敗時顯示錯誤訊息而不中斷整個 app。
+    """
+    try:
+        return loader_fn()
+    except Exception as exc:  # noqa: BLE001
+        st.error(
+            f"{model_name} 模型載入失敗，請確認已安裝 requirements.txt 並可連線下載模型。"
+            f"\n\n詳細訊息：{exc}"
+        )
+        return None
 
 
 # -----------------------------
@@ -132,6 +141,10 @@ def sentiment_to_rating(label: str, score: float) -> int:
 # 功能 1：多分類情緒分類
 # -----------------------------
 def func_multiclass_sentiment(review_text: str):
+    zero_shot_clf = get_model_safely(load_zero_shot_classifier, "多分類情緒")
+    if zero_shot_clf is None:
+        return
+
     labels = ["positive", "neutral", "negative", "touched", "angry", "disappointed", "surprised"]
     result = zero_shot_clf(review_text, candidate_labels=labels, multi_label=False)
     st.subheader("1️⃣ 多分類情緒分類結果")
@@ -149,6 +162,10 @@ def func_multiclass_sentiment(review_text: str):
 # 功能 2：影評主題分類
 # -----------------------------
 def func_topic_classification(review_text: str):
+    zero_shot_clf = get_model_safely(load_zero_shot_classifier, "主題分類")
+    if zero_shot_clf is None:
+        return
+
     labels = ["Plot", "Acting", "Directing", "Visual Effects", "Music", "Pacing", "Other"]
     result = zero_shot_clf(review_text, candidate_labels=labels, multi_label=False)
     st.subheader("2️⃣ 影評主題分類結果")
@@ -166,6 +183,10 @@ def func_topic_classification(review_text: str):
 # -----------------------------
 def func_summarization(review_text: str):
     st.subheader("3️⃣ 影評摘要生成結果")
+    summarizer = get_model_safely(load_summarizer, "摘要")
+    if summarizer is None:
+        return
+
     # 適當控制長度
     max_len = 130
     min_len = 30
@@ -191,6 +212,10 @@ def func_summarization(review_text: str):
 # -----------------------------
 def func_sentiment_intensity(review_text: str):
     st.subheader("4️⃣ 情緒強度分析結果")
+
+    sentiment_clf = get_model_safely(load_sentiment_model, "情緒分析")
+    if sentiment_clf is None:
+        return
 
     result = sentiment_clf(review_text)[0]
     label = result["label"]  # POSITIVE / NEGATIVE
@@ -235,6 +260,10 @@ def func_key_sentences_keywords(review_text: str):
 def func_rating_prediction(review_text: str):
     st.subheader("6️⃣ 評分推估結果")
 
+    sentiment_clf = get_model_safely(load_sentiment_model, "情緒分析")
+    if sentiment_clf is None:
+        return
+
     result = sentiment_clf(review_text)[0]
     label = result["label"]
     score = float(result["score"])
@@ -252,6 +281,10 @@ def func_rating_prediction(review_text: str):
 # -----------------------------
 def func_audience_suggestion(review_text: str):
     st.subheader("7️⃣ 觀眾類型建議結果")
+
+    sentiment_clf = get_model_safely(load_sentiment_model, "情緒分析")
+    if sentiment_clf is None:
+        return
 
     result = sentiment_clf(review_text)[0]
     label = result["label"]
