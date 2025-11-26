@@ -3,7 +3,7 @@
 本專案以 IMDB 電影評論資料集為基礎，除了基本的「正負評二元分類」之外，更進一步延伸出 **七項強化情意分析的功能**，讓模型不只是分類器，而是能夠深入理解評論、萃取資訊並產生應用價值。
 
 以下文件將逐項介紹功能目的、方法與對應可用 Prompt。
-
+- Streamlit App: https://aiotdahw4-ggligitjqn3czaxftowmyf.streamlit.app/
 ---
 
 # 🚀 快速安裝與執行
@@ -169,7 +169,3 @@
 - [Project Abstract](REPORT.md)
 
 ---
-
-## Deployment
-
-- Streamlit Cloud App: https://aiotdahw4-ggligitjqn3czaxftowmyf.streamlit.app/
