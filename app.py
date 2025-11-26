@@ -382,18 +382,15 @@ def main():
             ]
             match = None
             if candidates:
+                rating_sorted = sorted(
+                    candidates, key=lambda row: float(row.get("rating", 0))
+                )
                 if sentiment == "Negative":
-                    match = min(
-                        candidates,
-                        key=lambda row: float(row.get("rating", 0)),
-                    )
+                    match = rating_sorted[0]
                 elif sentiment == "Positive":
-                    match = max(
-                        candidates,
-                        key=lambda row: float(row.get("rating", 0)),
-                    )
+                    match = rating_sorted[-1]
                 else:
-                    match = candidates[0]
+                    match = rating_sorted[len(rating_sorted) // 2]
             if match:
                 quick_samples.append(match)
         if not quick_samples:
