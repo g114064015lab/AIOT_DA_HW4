@@ -410,7 +410,8 @@ def main():
         chart_df = build_chart_dataframe(chart_source, chart_field)
         chart_labels = {"sentiment": "情緒分佈", "topic": "主題分佈"}
         if chart_df is not None:
-            st.subheader(f"影評資料圖 · {chart_labels.get(chart_field, chart_field)}")
+            title_suffix = chart_labels.get(chart_field, chart_field)
+            st.subheader(f"內建影評資料圖 · {title_suffix}")
             chart_data = chart_df.rename(columns={"label": "分類", "count": "篇數"})
             chart = (
                 alt.Chart(chart_data)
@@ -425,7 +426,7 @@ def main():
                     ),
                     tooltip=["分類:N", "篇數:Q"],
                 )
-                .properties(height=320)
+                .properties(height=320, title=f"內建影評資料圖 · {title_suffix}")
             )
             st.altair_chart(chart, use_container_width=True)
         if show_raw_table and chart_source:
