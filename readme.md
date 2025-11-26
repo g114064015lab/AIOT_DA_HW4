@@ -168,3 +168,8 @@
 - [Development Guide](docs/DEVELOPMENT.md)
 - [Project Abstract](REPORT.md)
 
+---
+
+## Deployment
+
+- Streamlit Cloud App: https://aiotdahw4-ggligitjqn3czaxftowmyf.streamlit.app/
