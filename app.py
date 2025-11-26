@@ -26,16 +26,20 @@ import streamlit as st
 # -----------------------------------------------------------------------------
 def ensure_dependencies():
     """
-    確認核心依賴，若缺少則嘗試自動安裝一次（僅限雲端臨時環境；本地可手動安裝）。
+    確認核心依賴；若版本不符或缺少則直接提示使用者。
     """
-    missing = []
-    required_versions = {
-        "transformers": "4.44.2",
-        "torch": "2.5.1+cpu",
-        "sentencepiece": None,
-    }
+    import sys
 
-    for pkg in required_versions:
+    # tokenizers/torch/transformers 目前未提供 cp313 輪檔，需使用 3.11/3.12
+    if sys.version_info >= (3, 13):
+        st.error(
+            "偵測到 Python 3.13。請改用 Python 3.11 (runtime.txt 已設定 python-3.11.9)，"
+            "重新部署後再執行。"
+        )
+        st.stop()
+
+    missing = []
+    for pkg in ("transformers", "torch", "sentencepiece"):
         try:
             __import__(pkg)
         except ImportError:
@@ -44,52 +48,14 @@ def ensure_dependencies():
     if not missing:
         return
 
-    st.warning("偵測到缺少套件：{}，嘗試自動安裝中……".format(", ".join(missing)))
-    with st.spinner("安裝必要套件中，請稍候……"):
-        import subprocess
-        import sys
-
-        install_cmd = [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            "pip",
-        ]
-        subprocess.run(install_cmd, check=False)
-
-        # 逐一安裝缺少的套件，torch 需指定 PyTorch CPU index
-        for pkg in missing:
-            version = required_versions[pkg]
-            spec = f"{pkg}=={version}" if version else pkg
-            cmd = [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                spec,
-            ]
-            if pkg == "torch":
-                cmd.extend(["--index-url", "https://download.pytorch.org/whl/cpu"])
-            subprocess.run(cmd, check=False)
-
-    # 再次檢查
-    missing_after = []
-    for pkg in required_versions:
-        try:
-            __import__(pkg)
-        except ImportError:
-            missing_after.append(pkg)
-    if missing_after:
-        st.error(
-            "缺少必要套件："
-            + ", ".join(missing_after)
-            + "\n\n請在終端手動執行：\n"
-            "pip install --upgrade pip\n"
-            "pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu"
-        )
-        st.stop()
+    st.error(
+        "缺少必要套件："
+        + ", ".join(missing)
+        + "\n\n請確認已重新部署並安裝 requirements：\n"
+        "pip install --upgrade pip\n"
+        "pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu"
+    )
+    st.stop()
 
 
 ensure_dependencies()
