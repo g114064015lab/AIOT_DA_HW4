@@ -2,9 +2,6 @@
 # -*- coding: utf-8 -*-
 #
 # Streamlit 應用：針對 IMDB 影評，實作 README 中的 1~7 功能
-#
-# 需先安裝：
-#   pip install streamlit transformers sentencepiece
 
 import re
 import string
