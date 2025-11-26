@@ -4,7 +4,7 @@ import random
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import altair as alt
 import pandas as pd
@@ -73,16 +73,13 @@ def load_review_dataset() -> List[Dict[str, str]]:
     return rows
 
 
-def set_review_context(text: str, movie: Optional[str] = None):
+def set_review_text(text: str):
     st.session_state["input_review"] = text
-    if movie:
-        st.session_state["movie_title"] = movie
 
 
 def set_random_review(rows: List[Dict[str, str]]):
     if rows:
-        choice = random.choice(rows)
-        set_review_context(choice["review"], choice.get("movie") or choice.get("title"))
+        set_review_text(random.choice(rows)["review"])
 
 
 def build_chart_dataframe(rows: List[Dict[str, str]], field: str):
@@ -165,16 +162,18 @@ def rating_from_sentiment(compound: float) -> float:
     return round(max(0, min(10, rating)), 1)
 
 
-def audience_suggestion(text: str, profiles: List[Dict[str, List[str]]]) -> str:
-    lowered = text.lower()
-    best_label = "適合尋找劇情/角色深度的觀眾，避免期待爆米花娛樂的人。"
-    best_score = 0
-    for profile in profiles:
-        score = sum(lowered.count(keyword) for keyword in profile["keywords"])
-        if score > best_score:
-            best_score = score
-            best_label = profile["label"]
-    return best_label
+def audience_suggestion_from_rating(score: float) -> str:
+    buckets = [
+        (8.5, 11.0, "推薦尋找高品質敘事與演技的觀眾，幾乎可放心衝首輪。"),
+        (7.0, 8.5, "適合該題材粉絲或想找精緻娛樂的觀眾，戲院或串流都值得。"),
+        (5.0, 7.0, "建議輕鬆看片或串流觀賞，挑細節的觀眾可能覺得普通。"),
+        (3.0, 5.0, "僅推薦鐵粉或想吐槽的觀眾，其他人可斟酌時間成本。"),
+        (0.0, 3.0, "多數觀眾直接跳過較佳，可把時間留給更合胃口的作品。"),
+    ]
+    for lower, upper, message in buckets:
+        if lower <= score < upper:
+            return message
+    return "依個人品味自行斟酌。"
 
 
 def analyze_review(review: str, diversity: float, keyword_top_n: int):
@@ -190,6 +189,7 @@ def analyze_review(review: str, diversity: float, keyword_top_n: int):
     summary = " ".join(highlight_sentences) if highlight_sentences else text
     tokens = tokenize(text)
     keywords = select_keywords(tokens, keyword_top_n)
+    rating_score = rating_from_sentiment(compound)
     return {
         "sentiment_label": sentiment_label,
         "topic": topic,
@@ -197,16 +197,13 @@ def analyze_review(review: str, diversity: float, keyword_top_n: int):
         "sentiment_score_10": calc_intensity(compound),
         "key_sentences": highlight_sentences,
         "keywords": keywords,
-        "rating_pred_10": rating_from_sentiment(compound),
-        "audience_suitability": audience_suggestion(
-            text, heuristics["audience_profiles"]
-        ),
+        "rating_pred_10": rating_score,
+        "audience_suitability": audience_suggestion_from_rating(rating_score),
     }
 
 
-def render_results(parsed: dict, movie_name: str):
+def render_results(parsed: dict):
     st.subheader("分析結果")
-    st.caption(f"🎞️ 影評來源：{movie_name or '未指定電影'}")
     col1, col2 = st.columns(2)
 
     col1.metric("情緒/心情 (7類)", parsed.get("sentiment_label", "N/A"))
@@ -255,8 +252,6 @@ def main():
     )
     if "input_review" not in st.session_state:
         st.session_state.input_review = default_text
-    if "movie_title" not in st.session_state:
-        st.session_state.movie_title = "Custom Review"
 
     with st.sidebar:
         st.header("推理設定")
@@ -314,7 +309,7 @@ def main():
             sample_source = filtered_rows if filtered_rows else dataset_rows
 
             sample_map = {
-                f"{row.get('id','?')} · {row.get('movie', row.get('title','N/A'))}": row
+                f"{row.get('id','?')} · {row.get('title','Untitled')}": row
                 for row in sample_source
             }
             sample_label = st.selectbox(
@@ -324,15 +319,15 @@ def main():
             )
             chosen_sample = sample_map[sample_label]
             st.caption(
-                f"電影：{chosen_sample.get('movie','N/A')} · 情緒：{chosen_sample['sentiment']} · 主題：{chosen_sample['topic']} · 評分：{chosen_sample['rating']}"
+                f"標題：{chosen_sample.get('title','Untitled')} · 情緒：{chosen_sample['sentiment']} · 主題：{chosen_sample['topic']} · 評分：{chosen_sample['rating']}"
             )
             col_load, col_random = st.columns(2)
             col_load.button(
                 "載入選擇項",
                 use_container_width=True,
                 key="btn_load_selected",
-                on_click=set_review_context,
-                args=(chosen_sample["review"], chosen_sample.get("movie")),
+                on_click=set_review_text,
+                args=(chosen_sample["review"],),
             )
             col_random.button(
                 "隨機抽樣影評",
@@ -342,7 +337,7 @@ def main():
                 args=(sample_source,),
             )
             with st.expander("預覽選定影評"):
-                st.markdown(f"**{chosen_sample.get('movie','N/A')}**")
+                st.markdown(f"**{chosen_sample.get('title','Untitled')}**")
                 st.write(chosen_sample["review"])
             dataset_text = "\n".join(
                 json.dumps(row, ensure_ascii=False) for row in dataset_rows
@@ -375,12 +370,6 @@ def main():
         height=200,
         placeholder="輸入英文或中英混合影評，按下分析開始。",
     )
-    movie_name = st.text_input(
-        "電影名稱",
-        key="movie_title",
-        placeholder="輸入正在分析的電影名稱",
-        help="如從資料集中選取會自動帶入，亦可自行修改。",
-    )
 
     quick_source = filtered_rows if filtered_rows else dataset_rows
     if quick_source:
@@ -398,13 +387,13 @@ def main():
             quick_samples = quick_source[: min(3, len(quick_source))]
         cols = st.columns(len(quick_samples))
         for col, sample in zip(cols, quick_samples):
-            label = f"{sample.get('movie','N/A')} · {sample['sentiment']}"
+            label = f"{sample.get('title','Untitled')} ({sample['sentiment']})"
             col.button(
                 label,
                 use_container_width=True,
                 key=f"quick_{sample['id']}",
-                on_click=set_review_context,
-                args=(sample["review"], sample.get("movie")),
+                on_click=set_review_text,
+                args=(sample["review"],),
             )
 
     if st.button("開始分析", type="primary"):
@@ -413,7 +402,7 @@ def main():
         else:
             with st.spinner("本地模型分析中，請稍候..."):
                 parsed = analyze_review(review, temperature, keyword_top_n)
-            render_results(parsed, movie_name.strip() or "未命名影評")
+            render_results(parsed)
 
     chart_source = []
     if dataset_rows:
