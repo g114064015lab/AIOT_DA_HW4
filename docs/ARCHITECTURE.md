@@ -29,7 +29,7 @@ This Streamlit app delivers seven types of IMDB review analysis without relying 
 
 ## Data Flow
 
-```mermaid
+```
 flowchart TD
     A[User Input / Dataset Button] --> B[Streamlit Session State]
     B --> C[analyze_review()]
