@@ -1,9 +1,10 @@
 import json
 import os
+import random
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import streamlit as st
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -12,6 +13,8 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 BASE_DIR = Path(__file__).parent
 MODEL_DIR = BASE_DIR / "model"
 HEURISTICS_FILE = MODEL_DIR / os.getenv("IMDB_MODEL_FILE", "heuristics.json")
+DATASET_DIR = BASE_DIR / "IMDb影評"
+DATASET_FILE = DATASET_DIR / "reviews.jsonl"
 DEFAULT_TEMPERATURE = 0.2
 STOPWORDS = {
     "the",
@@ -54,6 +57,20 @@ def load_local_model():
     return heuristics, analyzer
 
 
+@st.cache_data(show_spinner=False)
+def load_review_dataset() -> List[Dict[str, str]]:
+    if not DATASET_FILE.exists():
+        return []
+    rows: List[Dict[str, str]] = []
+    with open(DATASET_FILE, "r", encoding="utf-8") as fp:
+        for line in fp:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
 def tokenize(text: str) -> List[str]:
     return [w.lower() for w in WORD_RE.findall(text)]
 
@@ -83,7 +100,7 @@ def detect_topic(text: str, topic_keywords: Dict[str, List[str]]) -> str:
     return best_topic if scores[best_topic] > 0 else "Other"
 
 
-def select_keywords(tokens: List[str], top_n: int = 6) -> List[str]:
+def select_keywords(tokens: List[str], top_n: int) -> List[str]:
     filtered = [t for t in tokens if t not in STOPWORDS and len(t) > 2]
     counts = Counter(filtered)
     return [word for word, _ in counts.most_common(top_n)]
@@ -136,7 +153,7 @@ def audience_suggestion(text: str, profiles: List[Dict[str, List[str]]]) -> str:
     return best_label
 
 
-def analyze_review(review: str, diversity: float):
+def analyze_review(review: str, diversity: float, keyword_top_n: int):
     heuristics, analyzer = load_local_model()
     text = review.strip()
     compound = analyzer.polarity_scores(text)["compound"]
@@ -148,7 +165,7 @@ def analyze_review(review: str, diversity: float):
     highlight_sentences = summarize(sentences, analyzer, diversity)
     summary = " ".join(highlight_sentences) if highlight_sentences else text
     tokens = tokenize(text)
-    keywords = select_keywords(tokens)
+    keywords = select_keywords(tokens, keyword_top_n)
     return {
         "sentiment_label": sentiment_label,
         "topic": topic,
@@ -200,11 +217,14 @@ def main():
         "多類情緒、主題、情緒保留摘要、強度、關鍵句/詞、評分與觀眾適配，一次完成。"
     )
 
-    example = (
+    dataset_rows = load_review_dataset()
+    default_text = (
         "The film's pacing is uneven, but the acting is heartfelt. "
         "I laughed a few times, yet the ending felt rushed and predictable. "
         "Overall, it's a decent weekend watch, nothing mind-blowing."
     )
+    if "input_review" not in st.session_state:
+        st.session_state.input_review = default_text
 
     with st.sidebar:
         st.header("推理設定")
@@ -216,23 +236,99 @@ def main():
             step=0.05,
             help="越高表示更偏好情緒波動大的句子，0 則偏好關鍵資訊。",
         )
+        keyword_top_n = st.slider(
+            "顯示的關鍵字數量",
+            min_value=3,
+            max_value=10,
+            value=6,
+            step=1,
+        )
         st.markdown(
             f"模型：`{HEURISTICS_FILE}`（本地規則/字典，無需雲端下載）"
         )
+        st.markdown(
+            f"資料集：`{DATASET_FILE if DATASET_FILE.exists() else '尚未提供'}`"
+        )
+        st.divider()
+
+        st.subheader("測試素材工具")
+        dataset_count = len(dataset_rows)
+        st.metric("內建影評數", dataset_count)
+        if dataset_rows:
+            sentiments = Counter(row["sentiment"] for row in dataset_rows)
+            top_sentiments = ", ".join(
+                f"{label}:{count}" for label, count in sentiments.most_common(3)
+            )
+            st.caption(f"常見情緒：{top_sentiments or 'N/A'}")
+
+            sample_map = {
+                f"{row['id']} · {row['title']}": row for row in dataset_rows
+            }
+            sample_label = st.selectbox(
+                "挑選內建影評",
+                list(sample_map.keys()),
+                key="sample_selector",
+            )
+            chosen_sample = sample_map[sample_label]
+            st.caption(
+                f"情緒：{chosen_sample['sentiment']} · 主題：{chosen_sample['topic']} · 評分：{chosen_sample['rating']}"
+            )
+            col_load, col_random = st.columns(2)
+            if col_load.button("載入選擇項", use_container_width=True):
+                st.session_state.input_review = chosen_sample["review"]
+                st.rerun()
+            if col_random.button("隨機抽樣影評", use_container_width=True):
+                random_sample = random.choice(dataset_rows)
+                st.session_state.input_review = random_sample["review"]
+                st.rerun()
+            with st.expander("預覽選定影評"):
+                st.write(chosen_sample["review"])
+            dataset_text = "\n".join(
+                json.dumps(row, ensure_ascii=False) for row in dataset_rows
+            )
+            st.download_button(
+                "下載樣本 JSONL",
+                data=dataset_text,
+                file_name="imdb_reviews_samples.jsonl",
+                mime="application/json",
+                use_container_width=True,
+            )
+        else:
+            st.info("尚未找到 `IMDb影評/reviews.jsonl`，僅能手動輸入影評。")
 
     review = st.text_area(
         "貼上 IMDB 影評文字",
-        value=example,
-        height=180,
+        key="input_review",
+        height=200,
         placeholder="輸入英文或中英混合影評，按下分析開始。",
     )
+
+    if dataset_rows:
+        st.caption("快速套用測試影評：")
+        quick_samples = []
+        sentiments_to_show = ["Positive", "Negative", "Neutral"]
+        for sentiment in sentiments_to_show:
+            match = next(
+                (row for row in dataset_rows if row["sentiment"] == sentiment),
+                None,
+            )
+            if match:
+                quick_samples.append(match)
+        if not quick_samples:
+            quick_samples = dataset_rows[:3]
+        cols = st.columns(len(quick_samples))
+        for col, sample in zip(cols, quick_samples):
+            label = f"{sample['sentiment']} · {sample['topic']}"
+            if col.button(label, use_container_width=True):
+                st.session_state.input_review = sample["review"]
+                st.rerun()
 
     if st.button("開始分析", type="primary"):
         if not review.strip():
             st.warning("請先輸入影評文字。")
         else:
             with st.spinner("本地模型分析中，請稍候..."):
-                parsed = analyze_review(review, temperature)
+                parsed = analyze_review(review, temperature, keyword_top_n)
             render_results(parsed)
 
 
