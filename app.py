@@ -8,7 +8,7 @@ import string
 from collections import Counter
 
 import streamlit as st
-from transformers import pipeline
+import sys
 
 
 # -----------------------------
@@ -16,12 +16,22 @@ from transformers import pipeline
 # -----------------------------
 @st.cache_resource
 def load_zero_shot_classifier():
+    try:
+        from transformers import pipeline
+    except ImportError as exc:  # noqa: F401
+        raise RuntimeError("transformers 未安裝，請先執行 pip install -r requirements.txt") from exc
+
     # 用於多分類情緒 & 主題分類
     return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
 
 @st.cache_resource
 def load_sentiment_model():
+    try:
+        from transformers import pipeline
+    except ImportError as exc:
+        raise RuntimeError("transformers 未安裝，請先執行 pip install -r requirements.txt") from exc
+
     # 二元情緒模型，用於情緒強度與評分推估
     return pipeline(
         "sentiment-analysis",
@@ -31,6 +41,11 @@ def load_sentiment_model():
 
 @st.cache_resource
 def load_summarizer():
+    try:
+        from transformers import pipeline
+    except ImportError as exc:
+        raise RuntimeError("transformers 未安裝，請先執行 pip install -r requirements.txt") from exc
+
     # 摘要模型
     return pipeline("summarization", model="facebook/bart-large-cnn")
 
@@ -323,6 +338,13 @@ st.set_page_config(
     page_icon="🎬",
     layout="wide",
 )
+
+# Python 3.13 尚未有官方 PyTorch 穩定版；建議使用 Python 3.11 執行此應用。
+if sys.version_info >= (3, 13):
+    st.warning(
+        "偵測到 Python 3.13，PyTorch/transformers 可能尚未提供對應輪檔，"
+        "建議使用 Python 3.11 環境並重新安裝 requirements.txt。"
+    )
 
 st.title("🎬 IMDB 影評情意分析 — 功能 1~7 Demo")
 
