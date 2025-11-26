@@ -314,7 +314,8 @@ def main():
             sample_source = filtered_rows if filtered_rows else dataset_rows
 
             sample_map = {
-                f"{row['id']} · {row['movie']}": row for row in sample_source
+                f"{row.get('id','?')} · {row.get('movie', row.get('title','N/A'))}": row
+                for row in sample_source
             }
             sample_label = st.selectbox(
                 "挑選內建影評",
