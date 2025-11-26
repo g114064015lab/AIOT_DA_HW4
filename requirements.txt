@@ -2,7 +2,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 streamlit==1.39.0
-transformers==4.44.2
+transformers==4.57.3
 torch==2.5.1+cpu
 tokenizers==0.22.1
 sentencepiece
