@@ -374,25 +374,69 @@ def main():
     quick_source = filtered_rows if filtered_rows else dataset_rows
     if quick_source:
         st.caption("快速套用測試影評：")
-        quick_samples = []
-        sentiments_to_show = ["Positive", "Negative", "Neutral"]
-        for sentiment in sentiments_to_show:
+
+        def rating_value(row):
+            try:
+                return float(row.get("rating", 0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        def pick_sample(sentiment, prefer_highest):
             candidates = [
                 row for row in quick_source if row["sentiment"] == sentiment
             ]
-            match = None
-            if candidates:
-                rating_sorted = sorted(
-                    candidates, key=lambda row: float(row.get("rating", 0))
+            if not candidates:
+                return None
+            return max(candidates, key=rating_value) if prefer_highest else min(
+                candidates, key=rating_value
+            )
+
+        positive_sample = pick_sample("Positive", prefer_highest=True)
+        negative_sample = pick_sample("Negative", prefer_highest=False)
+
+        neutral_candidates = [
+            row for row in quick_source if row["sentiment"] == "Neutral"
+        ]
+        neutral_sample = None
+        if neutral_candidates:
+            neutral_candidates.sort(key=rating_value)
+            if positive_sample and negative_sample:
+                target = (rating_value(positive_sample) + rating_value(negative_sample)) / 2
+            elif positive_sample:
+                target = rating_value(positive_sample) * 0.8
+            elif negative_sample:
+                target = rating_value(negative_sample) + 1.5
+            else:
+                target = rating_value(
+                    neutral_candidates[len(neutral_candidates) // 2]
                 )
-                if sentiment == "Negative":
-                    match = rating_sorted[0]
-                elif sentiment == "Positive":
-                    match = rating_sorted[-1]
-                else:
-                    match = rating_sorted[len(rating_sorted) // 2]
-            if match:
-                quick_samples.append(match)
+            neutral_sample = min(
+                neutral_candidates, key=lambda row: abs(rating_value(row) - target)
+            )
+            if (
+                positive_sample
+                and neutral_sample
+                and rating_value(neutral_sample) > rating_value(positive_sample)
+            ):
+                neutral_sample = neutral_candidates[
+                    max(0, len(neutral_candidates) // 2 - 1)
+                ]
+            if (
+                negative_sample
+                and neutral_sample
+                and rating_value(neutral_sample) < rating_value(negative_sample)
+            ):
+                neutral_sample = neutral_candidates[
+                    min(len(neutral_candidates) - 1, len(neutral_candidates) // 2 + 1)
+                ]
+
+        quick_samples = [
+            sample
+            for sample in [positive_sample, neutral_sample, negative_sample]
+            if sample
+        ]
+        if not quick_samples:
+            quick_samples = quick_source[: min(3, len(quick_source))]
         if not quick_samples:
             quick_samples = quick_source[: min(3, len(quick_source))]
         cols = st.columns(len(quick_samples))
