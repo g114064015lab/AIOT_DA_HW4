@@ -18,7 +18,7 @@
    ```
    若安裝 torch 失敗，可再嘗試：
    ```bash
-   pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+   pip install torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
    pip install transformers==4.44.2 sentencepiece
    ```
 3. 執行：

@@ -17,11 +17,9 @@ import sys
 def ensure_runtime_ready():
     """檢查 Python 版本與必要套件，缺少時直接在介面提示並停止。"""
     if sys.version_info >= (3, 13):
-        st.error(
-            "偵測到 Python 3.13，PyTorch/transformers 目前尚未提供穩定輪檔；"
-            "請改用 Python 3.11 後重新執行（可建立虛擬環境並 pip install -r requirements.txt）。"
+        st.warning(
+            "偵測到 Python 3.13，若遇到相容性問題請改用 Python 3.11 重新部署。"
         )
-        st.stop()
 
     missing = []
     for pkg in ("transformers", "torch", "sentencepiece"):
