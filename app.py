@@ -4,8 +4,9 @@ import random
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -72,26 +73,25 @@ def load_review_dataset() -> List[Dict[str, str]]:
     return rows
 
 
-def set_review_text(text: str):
+def set_review_context(text: str, movie: Optional[str] = None):
     st.session_state["input_review"] = text
+    if movie:
+        st.session_state["movie_title"] = movie
 
 
 def set_random_review(rows: List[Dict[str, str]]):
     if rows:
-        st.session_state["input_review"] = random.choice(rows)["review"]
+        choice = random.choice(rows)
+        set_review_context(choice["review"], choice.get("movie") or choice.get("title"))
 
 
 def build_chart_dataframe(rows: List[Dict[str, str]], field: str):
     counter = Counter(row.get(field, "Unknown") for row in rows)
     if not counter:
         return None
-    data = (
-        pd.DataFrame(
-            {"label": list(counter.keys()), "count": list(counter.values())}
-        )
-        .sort_values("count", ascending=False)
-        .set_index("label")
-    )
+    data = pd.DataFrame(
+        {"label": list(counter.keys()), "count": list(counter.values())}
+    ).sort_values("count", ascending=False)
     return data
 
 
@@ -204,8 +204,9 @@ def analyze_review(review: str, diversity: float, keyword_top_n: int):
     }
 
 
-def render_results(parsed: dict):
+def render_results(parsed: dict, movie_name: str):
     st.subheader("分析結果")
+    st.caption(f"🎞️ 影評來源：{movie_name or '未指定電影'}")
     col1, col2 = st.columns(2)
 
     col1.metric("情緒/心情 (7類)", parsed.get("sentiment_label", "N/A"))
@@ -254,6 +255,8 @@ def main():
     )
     if "input_review" not in st.session_state:
         st.session_state.input_review = default_text
+    if "movie_title" not in st.session_state:
+        st.session_state.movie_title = "Custom Review"
 
     with st.sidebar:
         st.header("推理設定")
@@ -311,7 +314,7 @@ def main():
             sample_source = filtered_rows if filtered_rows else dataset_rows
 
             sample_map = {
-                f"{row['id']} · {row['title']}": row for row in sample_source
+                f"{row['id']} · {row['movie']}": row for row in sample_source
             }
             sample_label = st.selectbox(
                 "挑選內建影評",
@@ -320,15 +323,15 @@ def main():
             )
             chosen_sample = sample_map[sample_label]
             st.caption(
-                f"情緒：{chosen_sample['sentiment']} · 主題：{chosen_sample['topic']} · 評分：{chosen_sample['rating']}"
+                f"電影：{chosen_sample.get('movie','N/A')} · 情緒：{chosen_sample['sentiment']} · 主題：{chosen_sample['topic']} · 評分：{chosen_sample['rating']}"
             )
             col_load, col_random = st.columns(2)
             col_load.button(
                 "載入選擇項",
                 use_container_width=True,
                 key="btn_load_selected",
-                on_click=set_review_text,
-                args=(chosen_sample["review"],),
+                on_click=set_review_context,
+                args=(chosen_sample["review"], chosen_sample.get("movie")),
             )
             col_random.button(
                 "隨機抽樣影評",
@@ -338,6 +341,7 @@ def main():
                 args=(sample_source,),
             )
             with st.expander("預覽選定影評"):
+                st.markdown(f"**{chosen_sample.get('movie','N/A')}**")
                 st.write(chosen_sample["review"])
             dataset_text = "\n".join(
                 json.dumps(row, ensure_ascii=False) for row in dataset_rows
@@ -370,6 +374,12 @@ def main():
         height=200,
         placeholder="輸入英文或中英混合影評，按下分析開始。",
     )
+    movie_name = st.text_input(
+        "電影名稱",
+        key="movie_title",
+        placeholder="輸入正在分析的電影名稱",
+        help="如從資料集中選取會自動帶入，亦可自行修改。",
+    )
 
     quick_source = filtered_rows if filtered_rows else dataset_rows
     if quick_source:
@@ -387,13 +397,13 @@ def main():
             quick_samples = quick_source[: min(3, len(quick_source))]
         cols = st.columns(len(quick_samples))
         for col, sample in zip(cols, quick_samples):
-            label = f"{sample['sentiment']} · {sample['topic']}"
+            label = f"{sample.get('movie','N/A')} · {sample['sentiment']}"
             col.button(
                 label,
                 use_container_width=True,
                 key=f"quick_{sample['id']}",
-                on_click=set_review_text,
-                args=(sample["review"],),
+                on_click=set_review_context,
+                args=(sample["review"], sample.get("movie")),
             )
 
     if st.button("開始分析", type="primary"):
@@ -402,7 +412,7 @@ def main():
         else:
             with st.spinner("本地模型分析中，請稍候..."):
                 parsed = analyze_review(review, temperature, keyword_top_n)
-            render_results(parsed)
+            render_results(parsed, movie_name.strip() or "未命名影評")
 
     chart_source = []
     if dataset_rows:
@@ -410,8 +420,24 @@ def main():
         chart_df = build_chart_dataframe(chart_source, chart_field)
         chart_labels = {"sentiment": "情緒分佈", "topic": "主題分佈"}
         if chart_df is not None:
-            st.subheader(f"資料視覺化 · {chart_labels.get(chart_field, chart_field)}")
-            st.bar_chart(chart_df)
+            st.subheader(f"影評資料圖 · {chart_labels.get(chart_field, chart_field)}")
+            chart_data = chart_df.rename(columns={"label": "分類", "count": "篇數"})
+            chart = (
+                alt.Chart(chart_data)
+                .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
+                .encode(
+                    x=alt.X("分類:N", sort="-y", title="分類"),
+                    y=alt.Y("篇數:Q", title="篇數"),
+                    color=alt.Color(
+                        "分類:N",
+                        legend=None,
+                        scale=alt.Scale(scheme="teals"),
+                    ),
+                    tooltip=["分類:N", "篇數:Q"],
+                )
+                .properties(height=320)
+            )
+            st.altair_chart(chart, use_container_width=True)
         if show_raw_table and chart_source:
             st.dataframe(
                 pd.DataFrame(chart_source)[
