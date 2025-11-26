@@ -36,7 +36,9 @@ flowchart TD
     C --> D[VADER Analyzer]
     C --> E[Keyword Heuristics]
     C --> F[Rating Regression Fit]
-    D & E & F --> G[Structured JSON Result]
+    D --> G{Merge Results}
+    E --> G
+    F --> G
     G --> H[Metrics + Charts + Tables]
 ```
 
