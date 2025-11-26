@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List
 
+import pandas as pd
 import streamlit as st
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
@@ -69,6 +70,29 @@ def load_review_dataset() -> List[Dict[str, str]]:
                 continue
             rows.append(json.loads(line))
     return rows
+
+
+def set_review_text(text: str):
+    st.session_state["input_review"] = text
+
+
+def set_random_review(rows: List[Dict[str, str]]):
+    if rows:
+        st.session_state["input_review"] = random.choice(rows)["review"]
+
+
+def build_chart_dataframe(rows: List[Dict[str, str]], field: str):
+    counter = Counter(row.get(field, "Unknown") for row in rows)
+    if not counter:
+        return None
+    data = (
+        pd.DataFrame(
+            {"label": list(counter.keys()), "count": list(counter.values())}
+        )
+        .sort_values("count", ascending=False)
+        .set_index("label")
+    )
+    return data
 
 
 def tokenize(text: str) -> List[str]:
@@ -211,6 +235,7 @@ def main():
         page_title="IMDB Review 7合1 情緒/主題/摘要分析",
         page_icon="🎬",
         layout="wide",
+        initial_sidebar_state="expanded",
     )
     st.title("🎬 IMDB 影評 7 合 1 智能分析")
     st.caption(
@@ -218,6 +243,10 @@ def main():
     )
 
     dataset_rows = load_review_dataset()
+    filtered_rows = dataset_rows
+    chart_field = "sentiment"
+    chart_use_filter = True
+    show_raw_table = False
     default_text = (
         "The film's pacing is uneven, but the acting is heartfelt. "
         "I laughed a few times, yet the ending felt rushed and predictable. "
@@ -260,9 +289,29 @@ def main():
                 f"{label}:{count}" for label, count in sentiments.most_common(3)
             )
             st.caption(f"常見情緒：{top_sentiments or 'N/A'}")
+            sentiment_options = ["全部"] + sorted(sentiments.keys())
+            sentiment_filter = st.selectbox(
+                "情緒篩選", sentiment_options, key="sentiment_filter"
+            )
+            rating_min, rating_max = st.slider(
+                "評分區間",
+                min_value=0.0,
+                max_value=10.0,
+                value=(0.0, 10.0),
+                step=0.5,
+            )
+            filtered_rows = [
+                row
+                for row in dataset_rows
+                if (sentiment_filter == "全部" or row["sentiment"] == sentiment_filter)
+                and rating_min <= float(row.get("rating", 0)) <= rating_max
+            ]
+            if not filtered_rows:
+                st.info("篩選條件下沒有對應的影評，將改用全部資料。")
+            sample_source = filtered_rows if filtered_rows else dataset_rows
 
             sample_map = {
-                f"{row['id']} · {row['title']}": row for row in dataset_rows
+                f"{row['id']} · {row['title']}": row for row in sample_source
             }
             sample_label = st.selectbox(
                 "挑選內建影評",
@@ -274,13 +323,20 @@ def main():
                 f"情緒：{chosen_sample['sentiment']} · 主題：{chosen_sample['topic']} · 評分：{chosen_sample['rating']}"
             )
             col_load, col_random = st.columns(2)
-            if col_load.button("載入選擇項", use_container_width=True):
-                st.session_state.input_review = chosen_sample["review"]
-                st.rerun()
-            if col_random.button("隨機抽樣影評", use_container_width=True):
-                random_sample = random.choice(dataset_rows)
-                st.session_state.input_review = random_sample["review"]
-                st.rerun()
+            col_load.button(
+                "載入選擇項",
+                use_container_width=True,
+                key="btn_load_selected",
+                on_click=set_review_text,
+                args=(chosen_sample["review"],),
+            )
+            col_random.button(
+                "隨機抽樣影評",
+                use_container_width=True,
+                key="btn_random_sample",
+                on_click=set_random_review,
+                args=(sample_source,),
+            )
             with st.expander("預覽選定影評"):
                 st.write(chosen_sample["review"])
             dataset_text = "\n".join(
@@ -293,6 +349,18 @@ def main():
                 mime="application/json",
                 use_container_width=True,
             )
+            chart_field = st.radio(
+                "資料視覺化項目",
+                options=["sentiment", "topic"],
+                format_func=lambda x: "情緒分佈" if x == "sentiment" else "主題分佈",
+                key="chart_field_radio",
+            )
+            chart_use_filter = st.checkbox(
+                "圖表使用篩選結果", value=True, key="chart_use_filter"
+            )
+            show_raw_table = st.checkbox(
+                "顯示資料表", value=False, key="show_raw_table"
+            )
         else:
             st.info("尚未找到 `IMDb影評/reviews.jsonl`，僅能手動輸入影評。")
 
@@ -303,25 +371,30 @@ def main():
         placeholder="輸入英文或中英混合影評，按下分析開始。",
     )
 
-    if dataset_rows:
+    quick_source = filtered_rows if filtered_rows else dataset_rows
+    if quick_source:
         st.caption("快速套用測試影評：")
         quick_samples = []
         sentiments_to_show = ["Positive", "Negative", "Neutral"]
         for sentiment in sentiments_to_show:
             match = next(
-                (row for row in dataset_rows if row["sentiment"] == sentiment),
+                (row for row in quick_source if row["sentiment"] == sentiment),
                 None,
             )
             if match:
                 quick_samples.append(match)
         if not quick_samples:
-            quick_samples = dataset_rows[:3]
+            quick_samples = quick_source[: min(3, len(quick_source))]
         cols = st.columns(len(quick_samples))
         for col, sample in zip(cols, quick_samples):
             label = f"{sample['sentiment']} · {sample['topic']}"
-            if col.button(label, use_container_width=True):
-                st.session_state.input_review = sample["review"]
-                st.rerun()
+            col.button(
+                label,
+                use_container_width=True,
+                key=f"quick_{sample['id']}",
+                on_click=set_review_text,
+                args=(sample["review"],),
+            )
 
     if st.button("開始分析", type="primary"):
         if not review.strip():
@@ -330,6 +403,21 @@ def main():
             with st.spinner("本地模型分析中，請稍候..."):
                 parsed = analyze_review(review, temperature, keyword_top_n)
             render_results(parsed)
+
+    chart_source = []
+    if dataset_rows:
+        chart_source = quick_source if chart_use_filter else dataset_rows
+        chart_df = build_chart_dataframe(chart_source, chart_field)
+        chart_labels = {"sentiment": "情緒分佈", "topic": "主題分佈"}
+        if chart_df is not None:
+            st.subheader(f"資料視覺化 · {chart_labels.get(chart_field, chart_field)}")
+            st.bar_chart(chart_df)
+        if show_raw_table and chart_source:
+            st.dataframe(
+                pd.DataFrame(chart_source)[
+                    ["id", "title", "sentiment", "topic", "rating"]
+                ]
+            )
 
 
 if __name__ == "__main__":
