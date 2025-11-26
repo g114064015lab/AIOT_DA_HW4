@@ -159,3 +159,12 @@
 - 喜歡輕鬆喜劇的人可能不適合  
 
 這種分析適合推薦系統、行銷策略調整、受眾分群等應用。
+
+---
+
+## Documentation
+
+- [Architecture Overview](docs/ARCHITECTURE.md)
+- [Development Guide](docs/DEVELOPMENT.md)
+- [Project Abstract](REPORT.md)
+
