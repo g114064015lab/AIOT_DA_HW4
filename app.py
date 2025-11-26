@@ -1,114 +1,84 @@
-# app.py
 # -*- coding: utf-8 -*-
-#
-# Streamlit 應用：針對 IMDB 影評，實作 README 中的 1~7 功能
+"""
+Streamlit 應用：IMDB 影評 1~7 功能 Demo
+- 多分類情緒分類
+- 影評主題分類
+- 影評摘要
+- 情緒強度分析
+- 關鍵句/關鍵字抽取
+- 評分推估
+- 觀眾類型建議
+
+依 README 所列功能重新實作，並加入依賴檢查與錯誤提示。
+"""
+
+from __future__ import annotations
 
 import re
 import string
 from collections import Counter
 
 import streamlit as st
-import sys
 
 
-# -----------------------------
-# 啟動前環境檢查
-# -----------------------------
-def ensure_runtime_ready():
-    """檢查 Python 版本與必要套件，缺少時直接在介面提示並停止。"""
-    if sys.version_info >= (3, 13):
-        st.warning(
-            "偵測到 Python 3.13，若遇到相容性問題請改用 Python 3.11 重新部署。"
-        )
-
+# -----------------------------------------------------------------------------
+# 依賴檢查
+# -----------------------------------------------------------------------------
+def ensure_dependencies():
     missing = []
     for pkg in ("transformers", "torch", "sentencepiece"):
         try:
             __import__(pkg)
         except ImportError:
             missing.append(pkg)
-
     if missing:
         st.error(
             "缺少必要套件："
             + ", ".join(missing)
             + "\n\n請先執行：\n"
-              "pip install --upgrade pip\n"
-              "pip install -r requirements.txt\n"
-              "(若 torch 下載失敗，請加上 --index-url https://download.pytorch.org/whl/cpu)"
+            "pip install --upgrade pip\n"
+            "pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu"
         )
         st.stop()
 
 
-ensure_runtime_ready()
+ensure_dependencies()
+
+# 若未缺依賴，才載入 transformers
+from transformers import pipeline  # noqa: E402
 
 
-# -----------------------------
-# 初始化模型（避免重複載入）
-# -----------------------------
-@st.cache_resource
+# -----------------------------------------------------------------------------
+# 模型載入（使用 cache 以避免重複下載）
+# -----------------------------------------------------------------------------
+@st.cache_resource(show_spinner="正在載入多分類情緒模型...")
 def load_zero_shot_classifier():
-    try:
-        from transformers import pipeline
-    except ImportError as exc:  # noqa: F401
-        raise RuntimeError("transformers 未安裝，請先執行 pip install -r requirements.txt") from exc
-
-    # 用於多分類情緒 & 主題分類
     return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="正在載入情緒分析模型...")
 def load_sentiment_model():
-    try:
-        from transformers import pipeline
-    except ImportError as exc:
-        raise RuntimeError("transformers 未安裝，請先執行 pip install -r requirements.txt") from exc
-
-    # 二元情緒模型，用於情緒強度與評分推估
     return pipeline(
         "sentiment-analysis",
         model="distilbert-base-uncased-finetuned-sst-2-english",
     )
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="正在載入摘要模型...")
 def load_summarizer():
-    try:
-        from transformers import pipeline
-    except ImportError as exc:
-        raise RuntimeError("transformers 未安裝，請先執行 pip install -r requirements.txt") from exc
-
-    # 摘要模型
     return pipeline("summarization", model="facebook/bart-large-cnn")
 
 
-def get_model_safely(loader_fn, model_name: str):
-    """
-    以懶加載方式取得模型，若缺少依賴或下載失敗時顯示錯誤訊息而不中斷整個 app。
-    """
-    try:
-        return loader_fn()
-    except Exception as exc:  # noqa: BLE001
-        st.error(
-            f"{model_name} 模型載入失敗，請確認已安裝 requirements.txt 並可連線下載模型。"
-            f"\n\n詳細訊息：{exc}"
-        )
-        return None
-
-
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 工具函式
-# -----------------------------
-def split_sentences(text: str):
-    # 簡單句子切分
+# -----------------------------------------------------------------------------
+def split_sentences(text: str) -> list[str]:
     text = text.replace("\n", " ")
     parts = re.split(r"(?<=[.!?])\s+", text)
-    # 過濾太短的片段
     return [s.strip() for s in parts if len(s.strip()) > 10]
 
 
-def extract_keywords(text: str, top_k: int = 5):
-    # 簡單的關鍵字抽取：去除停用詞 + 統計頻率
+def extract_keywords(text: str, top_k: int = 5) -> list[str]:
     stopwords = {
         "the",
         "a",
@@ -154,7 +124,6 @@ def extract_keywords(text: str, top_k: int = 5):
         "also",
     }
     text = text.lower()
-    # 去除標點
     text = text.translate(str.maketrans("", "", string.punctuation))
     tokens = text.split()
     tokens = [t for t in tokens if t not in stopwords and len(t) > 2]
@@ -163,90 +132,66 @@ def extract_keywords(text: str, top_k: int = 5):
 
 
 def scale_sentiment_to_intensity(label: str, score: float) -> int:
-    # 將情緒分數映射到 1~10 強度
-    # positive → score 越高強度越高
-    # negative → score 越高強度越高
-    # 這裡將 0~1 線性轉成 1~10
     intensity = int(round(score * 9 + 1))
-    intensity = max(1, min(10, intensity))
-    return intensity
+    return max(1, min(10, intensity))
 
 
 def sentiment_to_rating(label: str, score: float) -> int:
-    # 根據正負情緒估計 1~10 評分
-    # 正向：基準 6~10，負向：1~5
     if label.upper() == "POSITIVE":
         rating = 6 + score * 4  # 6~10
     else:
         rating = 1 + (1 - score) * 4  # 1~5
     rating = int(round(rating))
-    rating = max(1, min(10, rating))
-    return rating
+    return max(1, min(10, rating))
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 功能 1：多分類情緒分類
-# -----------------------------
+# -----------------------------------------------------------------------------
 def func_multiclass_sentiment(review_text: str):
-    zero_shot_clf = get_model_safely(load_zero_shot_classifier, "多分類情緒")
-    if zero_shot_clf is None:
-        return
-
+    clf = load_zero_shot_classifier()
     labels = ["positive", "neutral", "negative", "touched", "angry", "disappointed", "surprised"]
-    result = zero_shot_clf(review_text, candidate_labels=labels, multi_label=False)
-    st.subheader("1️⃣ 多分類情緒分類結果")
+    result = clf(review_text, candidate_labels=labels, multi_label=False)
 
-    # 排序顯示
+    st.subheader("1️⃣ 多分類情緒分類結果")
     scores = list(zip(result["labels"], result["scores"]))
     scores.sort(key=lambda x: x[1], reverse=True)
-
     st.write("**預測情緒標籤（由高到低）：**")
     for label, score in scores:
         st.write(f"- {label}（score = {score:.3f}）")
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 功能 2：影評主題分類
-# -----------------------------
+# -----------------------------------------------------------------------------
 def func_topic_classification(review_text: str):
-    zero_shot_clf = get_model_safely(load_zero_shot_classifier, "主題分類")
-    if zero_shot_clf is None:
-        return
-
+    clf = load_zero_shot_classifier()
     labels = ["Plot", "Acting", "Directing", "Visual Effects", "Music", "Pacing", "Other"]
-    result = zero_shot_clf(review_text, candidate_labels=labels, multi_label=False)
-    st.subheader("2️⃣ 影評主題分類結果")
+    result = clf(review_text, candidate_labels=labels, multi_label=False)
 
+    st.subheader("2️⃣ 影評主題分類結果")
     scores = list(zip(result["labels"], result["scores"]))
     scores.sort(key=lambda x: x[1], reverse=True)
-
     st.write("**預測主題（由高到低）：**")
     for label, score in scores:
         st.write(f"- {label}（score = {score:.3f}）")
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 功能 3：影評摘要生成
-# -----------------------------
+# -----------------------------------------------------------------------------
 def func_summarization(review_text: str):
     st.subheader("3️⃣ 影評摘要生成結果")
-    summarizer = get_model_safely(load_summarizer, "摘要")
-    if summarizer is None:
-        return
-
-    # 適當控制長度
-    max_len = 130
-    min_len = 30
-    # 太短就沒必要摘要
     if len(review_text.split()) < 40:
         st.info("影評略短，直接顯示原文：")
         st.write(review_text)
         return
 
+    summarizer = load_summarizer()
     summary = summarizer(
         review_text,
-        max_length=max_len,
-        min_length=min_len,
+        max_length=130,
+        min_length=30,
         do_sample=False,
     )[0]["summary_text"]
 
@@ -254,41 +199,34 @@ def func_summarization(review_text: str):
     st.write(summary)
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 功能 4：情緒強度分析
-# -----------------------------
+# -----------------------------------------------------------------------------
 def func_sentiment_intensity(review_text: str):
     st.subheader("4️⃣ 情緒強度分析結果")
-
-    sentiment_clf = get_model_safely(load_sentiment_model, "情緒分析")
-    if sentiment_clf is None:
-        return
-
-    result = sentiment_clf(review_text)[0]
-    label = result["label"]  # POSITIVE / NEGATIVE
+    clf = load_sentiment_model()
+    result = clf(review_text)[0]
+    label = result["label"]
     score = float(result["score"])
     intensity = scale_sentiment_to_intensity(label, score)
-
     sentiment_zh = "正面" if label.upper() == "POSITIVE" else "負面"
 
     st.write(f"**感受：** {sentiment_zh} ({label})")
     st.write(f"**模型信心分數：** {score:.3f}")
     st.write(f"**推定情緒強度（1–10）：** {intensity}")
-    st.write("**說明：** 強度是根據情緒分類模型的信心分數，線性映射到 1–10 的區間。")
+    st.write("**說明：** 強度依情緒分類模型信心分數線性映射到 1–10。")
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 功能 5：關鍵句與關鍵字抽取
-# -----------------------------
+# -----------------------------------------------------------------------------
 def func_key_sentences_keywords(review_text: str):
     st.subheader("5️⃣ 關鍵句與關鍵字抽取結果")
-
     sentences = split_sentences(review_text)
     if not sentences:
         st.warning("無法從文字中切分出有效句子。")
         return
 
-    # 簡單依句子長度排序，取前 3 句
     sentences_sorted = sorted(sentences, key=len, reverse=True)
     top_sentences = sentences_sorted[:3]
 
@@ -301,43 +239,33 @@ def func_key_sentences_keywords(review_text: str):
     st.write(", ".join(keywords) if keywords else "（無明顯關鍵字）")
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 功能 6：評分推估
-# -----------------------------
+# -----------------------------------------------------------------------------
 def func_rating_prediction(review_text: str):
     st.subheader("6️⃣ 評分推估結果")
-
-    sentiment_clf = get_model_safely(load_sentiment_model, "情緒分析")
-    if sentiment_clf is None:
-        return
-
-    result = sentiment_clf(review_text)[0]
+    clf = load_sentiment_model()
+    result = clf(review_text)[0]
     label = result["label"]
     score = float(result["score"])
-
     rating = sentiment_to_rating(label, score)
     sentiment_zh = "正面" if label.upper() == "POSITIVE" else "負面"
 
     st.write(f"**情緒判定：** {sentiment_zh} ({label}), score = {score:.3f}")
     st.write(f"**推估評分（1–10）：** {rating}")
-    st.write("**說明：** 正面情緒對應 6–10 分區間，負面情緒對應 1–5 分區間，再依模型信心分數調整。")
+    st.write("**說明：** 正面情緒映射 6–10，負面情緒映射 1–5，並依模型信心分數調整。")
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # 功能 7：觀眾類型建議
-# -----------------------------
+# -----------------------------------------------------------------------------
 def func_audience_suggestion(review_text: str):
     st.subheader("7️⃣ 觀眾類型建議結果")
-
-    sentiment_clf = get_model_safely(load_sentiment_model, "情緒分析")
-    if sentiment_clf is None:
-        return
-
-    result = sentiment_clf(review_text)[0]
+    clf = load_sentiment_model()
+    result = clf(review_text)[0]
     label = result["label"]
     score = float(result["score"])
     sentiment_zh = "正面" if label.upper() == "POSITIVE" else "負面"
-
     rating = sentiment_to_rating(label, score)
 
     st.write(f"**情緒判定：** {sentiment_zh} ({label}), score = {score:.3f}")
@@ -345,7 +273,7 @@ def func_audience_suggestion(review_text: str):
 
     st.write("**適合的觀眾類型（推論）：**")
     if label.upper() == "POSITIVE":
-        st.write("- 喜歡這種類型題材的觀眾。")
+        st.write("- 喜歡此類型題材的觀眾。")
         st.write("- 對演員或導演已有好感的影迷。")
         st.write("- 接受片中節奏與敘事風格的觀眾。")
     else:
@@ -362,21 +290,14 @@ def func_audience_suggestion(review_text: str):
         st.write("- 期待強烈動作場面或高張力劇情，但本片較平淡的觀眾。")
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # Streamlit 介面
-# -----------------------------
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="IMDB 情意分析工具",
     page_icon="🎬",
     layout="wide",
 )
-
-# Python 3.13 尚未有官方 PyTorch 穩定版；建議使用 Python 3.11 執行此應用。
-if sys.version_info >= (3, 13):
-    st.warning(
-        "偵測到 Python 3.13，PyTorch/transformers 可能尚未提供對應輪檔，"
-        "建議使用 Python 3.11 環境並重新安裝 requirements.txt。"
-    )
 
 st.title("🎬 IMDB 影評情意分析 — 功能 1~7 Demo")
 
@@ -419,17 +340,18 @@ if run_button:
     if not review_text.strip():
         st.warning("請先輸入一段影評再執行分析。")
     else:
+        text = review_text.strip()
         if func_choice.startswith("1"):
-            func_multiclass_sentiment(review_text.strip())
+            func_multiclass_sentiment(text)
         elif func_choice.startswith("2"):
-            func_topic_classification(review_text.strip())
+            func_topic_classification(text)
         elif func_choice.startswith("3"):
-            func_summarization(review_text.strip())
+            func_summarization(text)
         elif func_choice.startswith("4"):
-            func_sentiment_intensity(review_text.strip())
+            func_sentiment_intensity(text)
         elif func_choice.startswith("5"):
-            func_key_sentences_keywords(review_text.strip())
+            func_key_sentences_keywords(text)
         elif func_choice.startswith("6"):
-            func_rating_prediction(review_text.strip())
+            func_rating_prediction(text)
         elif func_choice.startswith("7"):
-            func_audience_suggestion(review_text.strip())
+            func_audience_suggestion(text)
