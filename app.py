@@ -377,10 +377,23 @@ def main():
         quick_samples = []
         sentiments_to_show = ["Positive", "Negative", "Neutral"]
         for sentiment in sentiments_to_show:
-            match = next(
-                (row for row in quick_source if row["sentiment"] == sentiment),
-                None,
-            )
+            candidates = [
+                row for row in quick_source if row["sentiment"] == sentiment
+            ]
+            match = None
+            if candidates:
+                if sentiment == "Negative":
+                    match = min(
+                        candidates,
+                        key=lambda row: float(row.get("rating", 0)),
+                    )
+                elif sentiment == "Positive":
+                    match = max(
+                        candidates,
+                        key=lambda row: float(row.get("rating", 0)),
+                    )
+                else:
+                    match = candidates[0]
             if match:
                 quick_samples.append(match)
         if not quick_samples:
