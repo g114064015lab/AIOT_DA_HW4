@@ -1,0 +1,35 @@
+{
+  "sentiment_keywords": {
+    "Touched": ["touching", "heartwarming", "moving", "tender", "tear", "uplifting"],
+    "Angry": ["angry", "furious", "rage", "infuriating", "outraged", "livid"],
+    "Disappointed": ["disappointed", "letdown", "underwhelmed", "meh", "anticlimactic"],
+    "Surprised": ["surprised", "shocked", "unexpected", "twist", "astonished"]
+  },
+  "topic_keywords": {
+    "Plot": ["story", "plot", "script", "writing", "narrative", "twist", "ending"],
+    "Acting": ["acting", "performance", "cast", "actor", "actress", "chemistry"],
+    "Directing": ["directing", "direction", "director", "vision", "cinematography"],
+    "Visual Effects": ["visual", "effects", "cgi", "design", "production", "shots"],
+    "Music": ["score", "music", "soundtrack", "theme", "song", "composer"],
+    "Pacing": ["pacing", "slow", "fast", "drag", "runtime", "tempo"],
+    "Other": []
+  },
+  "audience_profiles": [
+    {
+      "label": "喜歡角色與情感線的觀眾會特別買單。",
+      "keywords": ["heart", "relationship", "family", "growth", "tender"]
+    },
+    {
+      "label": "偏好爽度娛樂的觀眾可能覺得節奏不足。",
+      "keywords": ["slow", "drag", "boring", "long", "runtime"]
+    },
+    {
+      "label": "愛好視覺與配樂的觀眾會享受其風格化美學。",
+      "keywords": ["visual", "score", "soundtrack", "cinematography", "design"]
+    },
+    {
+      "label": "尋找演技派作品的觀眾值得一看。",
+      "keywords": ["acting", "performance", "cast", "actor", "actress"]
+    }
+  ]
+}
