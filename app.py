@@ -1,10 +1,11 @@
 import json
+import math
 import os
 import random
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import altair as alt
 import pandas as pd
@@ -18,6 +19,7 @@ HEURISTICS_FILE = MODEL_DIR / os.getenv("IMDB_MODEL_FILE", "heuristics.json")
 DATASET_DIR = BASE_DIR / "IMDb影評"
 DATASET_FILE = DATASET_DIR / "reviews.jsonl"
 DEFAULT_TEMPERATURE = 0.2
+DEFAULT_RATING_MAPPING = (5.0, 5.0)  # slope, intercept
 STOPWORDS = {
     "the",
     "a",
@@ -78,6 +80,36 @@ def load_review_dataset() -> List[Dict[str, str]]:
                 continue
             rows.append(json.loads(line))
     return rows
+
+
+@st.cache_data(show_spinner=False)
+def compute_rating_mapping(rows: List[Dict[str, str]]) -> Tuple[float, float]:
+    analyzer = SentimentIntensityAnalyzer()
+    samples = []
+    for row in rows:
+        review = row.get("review")
+        rating = row.get("rating")
+        if not review or rating is None:
+            continue
+        try:
+            rating_float = float(rating)
+        except (TypeError, ValueError):
+            continue
+        compound = analyzer.polarity_scores(review)["compound"]
+        samples.append((compound, rating_float))
+    if len(samples) < 2:
+        return DEFAULT_RATING_MAPPING
+    mean_x = sum(x for x, _ in samples) / len(samples)
+    mean_y = sum(y for _, y in samples) / len(samples)
+    numerator = sum((x - mean_x) * (y - mean_y) for x, y in samples)
+    denominator = sum((x - mean_x) ** 2 for x, _ in samples)
+    if denominator == 0:
+        return DEFAULT_RATING_MAPPING
+    slope = numerator / denominator
+    intercept = mean_y - slope * mean_x
+    if not (math.isfinite(slope) and math.isfinite(intercept)):
+        return DEFAULT_RATING_MAPPING
+    return slope, intercept
 
 
 def set_review_text(text: str):
@@ -164,8 +196,11 @@ def calc_intensity(compound: float) -> float:
     return round(min(1.0, abs(compound)) * 10, 2)
 
 
-def rating_from_sentiment(compound: float) -> float:
-    rating = ((compound + 1) / 2) * 10
+def rating_from_sentiment(
+    compound: float, mapping: Tuple[float, float] = DEFAULT_RATING_MAPPING
+) -> float:
+    slope, intercept = mapping
+    rating = slope * compound + intercept
     return round(max(0, min(10, rating)), 1)
 
 
@@ -183,7 +218,12 @@ def audience_suggestion_from_rating(score: float) -> str:
     return "依個人品味自行斟酌。"
 
 
-def analyze_review(review: str, diversity: float, keyword_top_n: int):
+def analyze_review(
+    review: str,
+    diversity: float,
+    keyword_top_n: int,
+    rating_mapping: Tuple[float, float] = DEFAULT_RATING_MAPPING,
+):
     heuristics, analyzer = load_local_model()
     text = review.strip()
     compound = analyzer.polarity_scores(text)["compound"]
@@ -196,7 +236,7 @@ def analyze_review(review: str, diversity: float, keyword_top_n: int):
     summary = " ".join(highlight_sentences) if highlight_sentences else text
     tokens = tokenize(text)
     keywords = select_keywords(tokens, keyword_top_n)
-    rating_score = rating_from_sentiment(compound)
+    rating_score = rating_from_sentiment(compound, rating_mapping)
     return {
         "sentiment_label": sentiment_label,
         "topic": topic,
@@ -257,6 +297,10 @@ def main():
         "I laughed a few times, yet the ending felt rushed and predictable. "
         "Overall, it's a decent weekend watch, nothing mind-blowing."
     )
+    rating_mapping = (
+        compute_rating_mapping(dataset_rows) if dataset_rows else DEFAULT_RATING_MAPPING
+    )
+
     if "input_review" not in st.session_state:
         st.session_state.input_review = default_text
 
@@ -468,7 +512,9 @@ def main():
             st.warning("請先輸入影評文字。")
         else:
             with st.spinner("本地模型分析中，請稍候..."):
-                parsed = analyze_review(review, temperature, keyword_top_n)
+                parsed = analyze_review(
+                    review, temperature, keyword_top_n, rating_mapping
+                )
             render_results(parsed)
 
     chart_source = []
