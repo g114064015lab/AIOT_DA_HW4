@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from functools import lru_cache
 
@@ -7,7 +8,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 
-MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
+MODEL_ID = os.getenv("IMDB_MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
 MAX_NEW_TOKENS = 450
 DEFAULT_TEMPERATURE = 0.2
 
@@ -20,6 +21,7 @@ def load_generator():
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto",
         trust_remote_code=True,
+        low_cpu_mem_usage=True,
     )
     return pipeline(
         "text-generation",
@@ -86,8 +88,19 @@ def extract_json_block(text: str):
         return None
 
 
+def ensure_generator():
+    try:
+        return load_generator()
+    except Exception as exc:  # pragma: no cover - surfaces in UI
+        st.error(
+            "無法載入語言模型，請稍後再試或改用更小的模型。\n\n"
+            f"模型 ID: `{MODEL_ID}`\n錯誤: {exc}"
+        )
+        st.stop()
+
+
 def analyze_review(review: str, temperature: float):
-    generator = load_generator()
+    generator = ensure_generator()
     prompt = build_prompt(review, temperature)
     outputs = generator(
         prompt,
@@ -163,7 +176,7 @@ def main():
             step=0.05,
         )
         st.markdown(
-            "模型：`Qwen/Qwen2.5-1.5B-Instruct`（本地推理，僅 JSON 回傳）"
+            f"模型：`{MODEL_ID}`（本地推理，僅 JSON 回傳）"
         )
 
     review = st.text_area(
