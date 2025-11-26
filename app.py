@@ -25,17 +25,67 @@ import streamlit as st
 # 依賴檢查
 # -----------------------------------------------------------------------------
 def ensure_dependencies():
+    """
+    確認核心依賴，若缺少則嘗試自動安裝一次（僅限雲端臨時環境；本地可手動安裝）。
+    """
     missing = []
-    for pkg in ("transformers", "torch", "sentencepiece"):
+    required_versions = {
+        "transformers": "4.44.2",
+        "torch": "2.5.1+cpu",
+        "sentencepiece": None,
+    }
+
+    for pkg in required_versions:
         try:
             __import__(pkg)
         except ImportError:
             missing.append(pkg)
-    if missing:
+
+    if not missing:
+        return
+
+    st.warning("偵測到缺少套件：{}，嘗試自動安裝中……".format(", ".join(missing)))
+    with st.spinner("安裝必要套件中，請稍候……"):
+        import subprocess
+        import sys
+
+        install_cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "pip",
+        ]
+        subprocess.run(install_cmd, check=False)
+
+        # 逐一安裝缺少的套件，torch 需指定 PyTorch CPU index
+        for pkg in missing:
+            version = required_versions[pkg]
+            spec = f"{pkg}=={version}" if version else pkg
+            cmd = [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                spec,
+            ]
+            if pkg == "torch":
+                cmd.extend(["--index-url", "https://download.pytorch.org/whl/cpu"])
+            subprocess.run(cmd, check=False)
+
+    # 再次檢查
+    missing_after = []
+    for pkg in required_versions:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing_after.append(pkg)
+    if missing_after:
         st.error(
             "缺少必要套件："
-            + ", ".join(missing)
-            + "\n\n請先執行：\n"
+            + ", ".join(missing_after)
+            + "\n\n請在終端手動執行：\n"
             "pip install --upgrade pip\n"
             "pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu"
         )
