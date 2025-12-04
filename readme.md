@@ -169,3 +169,7 @@
 - [Project Abstract](REPORT.md)
 
 ---
+
+## Ref
+
+- https://github.com/yenlung/Deep-Learning-MOOC/blob/master/04-1.%20%E7%94%A8RNN%E5%81%9A%E6%83%85%E6%84%8F%E5%88%86%E6%9E%90.ipynb
